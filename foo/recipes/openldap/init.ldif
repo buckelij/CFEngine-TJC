@@ -1,0 +1,9 @@
+dn: o=REDACTED
+objectclass: top
+objectclass: organization
+o: REDACTED
+
+dn: cn=Manager,o=REDACTED
+objectclass: organizationalRole
+cn: root
+

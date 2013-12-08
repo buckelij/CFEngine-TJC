@@ -1,0 +1,137 @@
+#If there is data in non-standard locations that needs to be migrated as part of a tomcat
+#upgrade procedure, put commands to migrate that data in recipes/migrate.sh. For example, 
+#if there is a directory created at /usr/local/tomcat/localdata, put:
+# cp -R /usr/local/tomcat/localdata $1/
+
+bundle agent tomcat
+{
+### CLASSES ###
+  classes:
+	"tomcat_version_ok" expression => fileexists("/usr/local/$(tomcat_version)");
+	"tomcat_user_exists" expression => userexists("tomcat");
+	"remove_tomcat_examples" expression => fileexists ("/usr/local/tomcat/webapps/examples");
+	"remove_tomcat_docs" expression => fileexists ("/usr/local/tomcat/webapps/docs");
+	"remove_tomcat_manag" expression => fileexists ("/usr/local/tomcat/webapps/manager");
+	"remove_tomcat_hmanag" expression => fileexists ("/usr/local/tomcat/webapps/host-manager");
+ 	"tomcat_onq" expression => returnszero("/sbin/chkconfig tomcat", "noshell");
+
+### VARS ###
+  vars:
+	"tomcat_version" string => "apache-tomcat-7.0.34";
+	"password" 
+		string => execresult(
+		"/bin/echo $(def.tomcat_password) |/usr/bin/openssl enc -des3 -d -a -pass file:/etc/cfkey", "useshell");
+
+
+### PACKAGES ###
+    packages:
+                "jre"
+                        package_policy => "add",
+                        package_method => generic;
+
+### FILES ###
+  files:
+    (tomcat_version_ok|tomcat_bootstrap_complete)::
+	"/etc/init.d/tomcat"
+		classes => if_repaired("tomcat_restart"),
+		create => "true",
+		perms => m(755),
+                edit_defaults => empty,
+                edit_line => expand_template("/var/cfengine/recipes/tomcat/tomcat_init");
+	"/usr/local/bin/tjc-tomcat-deploy.sh"
+		perms => m(755),
+		copy_from => no_backup_dcp("/var/cfengine/recipes/tomcat/deploy.sh");
+	"/usr/local/tomcat/bin/catalina.sh"
+		classes => if_repaired("tomcat_restart"),
+		create => "false",
+		edit_line => edit_tomcat_javaopts;
+	"/usr/local/tomcat/conf/server.xml"
+		classes => if_repaired("tomcat_restart"),
+                perms => mog(600, "tomcat", "root"),
+		create => "false",
+                edit_defaults => empty,
+                edit_line => expand_template("/var/cfengine/recipes/tomcat/server.xml");
+	"/usr/local/tomcat/conf/tomcat-users.xml"
+		classes => if_repaired("tomcat_restart"),
+                perms => mog(600, "tomcat", "root"),
+		create => "false",
+                edit_defaults => empty,
+                edit_line => expand_template("/var/cfengine/recipes/tomcat/tomcat-users.xml");
+	"/usr/local/tomcat/."
+		create => "false",
+		perms => mog("750", "tomcat", "tomcat");
+	"/usr/local/tomcat/webapps/."
+		create => "false",
+		perms => mog("2770", "tomcat", "tomcat");
+
+### COMMANDS ###
+  commands:
+	!tomcat_user_exists::
+		"/usr/sbin/useradd -M -d /var/empty tomcat";
+  
+  commands:
+    #tomcat link already exists, but is out of date, upgrade
+    #if this is an intial bootstrap, you may get warnings you won't get during an upgrade	
+	!tomcat_version_ok::
+		#download new version
+		"/usr/bin/curl http://REDACTED/$(tomcat_version).tar.gz -o /tmp/$(tomcat_version).tar.gz";
+		"/bin/tar -C /usr/local/ -xvf /tmp/$(tomcat_version).tar.gz";
+		#stop old version
+		"/sbin/service tomcat stop";
+		"/bin/sleep 5";
+		"/sbin/service tomcat stop";
+		#copy applications
+		"/bin/rm -rf /usr/local/$(tomcat_version)/webapps/ROOT";
+		"/bin/bash -c \"/bin/cp -r /usr/local/tomcat/webapps/*.war /usr/local/$(tomcat_version)/webapps\"";
+		#run local migration script (copy various application-related data, etc)
+                "/bin/bash /var/cfengine/recipes/tomcat/migrate.sh /usr/local/$(tomcat_version)/";
+ 		#link in new version
+		"/bin/unlink /usr/local/tomcat";
+		"/bin/ln -s /usr/local/$(tomcat_version) /usr/local/tomcat";
+		"/bin/chown -R tomcat /usr/local/tomcat/";
+		#start new version
+		"/sbin/chkconfig tomcat on"
+		classes => if_repaired("tomcat_bootstrap_complete");
+
+  commands:
+	tomcat_restart::
+		"/sbin/service tomcat restart";
+
+  commands:
+        !tomcat_onq::
+                "/sbin/chkconfig tomcat on";
+
+  
+  commands:
+	remove_tomcat_examples::
+		"/bin/rm -rf /usr/local/tomcat/webapps/examples";
+
+  commands:
+	remove_tomcat_docs::
+		"/bin/rm -rf /usr/local/tomcat/webapps/docs";
+
+  commands:
+	remove_tomcat_manag::
+		"/bin/rm -rf /usr/local/tomcat/webapps/manager";
+
+  commands:
+	remove_tomcat_hmanag::
+		"/bin/rm -rf /usr/local/tomcat/webapps/host-manager";
+
+### REPORTS ###		
+  reports:
+	tomcat_version_ok::
+		"tomcat version is OK at $(tomcat_version)";
+	!tomcat_version_ok::
+		"tomcat version NOT OK";
+}
+
+### EDIT LINE BODY FOR /USR/LOCAL/TOMCAT/BIN/CATALINA.SH ###
+bundle edit_line edit_tomcat_javaopts {
+	delete_lines:
+		"JAVA_OPTS=.*";
+	insert_lines:
+		"#Managed by CFEngine
+$(def.tomcat_java_opts)",
+		location => after("#!/bin/sh");
+}

@@ -1,0 +1,51 @@
+bundle agent authzn
+{
+#adds specified users
+#Don't forget that if you remove a user here, you need to remove it from the system manually
+  vars:
+  testenv::
+    "users" slist =>             { "deploy", "jsmith", "mysqldba" }; #a service account
+    "tomcat_users" slist =>      { "deploy", "jsmith" }; #add a user to a group
+    "mysql_users" slist =>      { "mysqldba" };
+    "password_policied" slist => { "jsmith", "mysqldba" }; #apply password change policy
+  prodenv::
+    "users" slist =>             { "deploy" };
+    "tomcat_users" slist =>      { "deploy" };
+    "mysql_users" slist =>      { "mysqldba" };
+    "password_policied" slist => { "mysqldba" }; 
+
+  #ADD USER
+  commands:
+    "/bin/bash -c \"if ! /usr/bin/id $(users) >/dev/null 2>&1; then /usr/sbin/useradd -m $(users); fi\"";
+  #USERS GROUPS
+  commands:
+    "/bin/bash -c \"if ! /usr/bin/id $(users) 2>&1 | grep -q '(users)'; then /usr/sbin/usermod -aG users $(users); fi\"";
+  commands:
+  web::
+    "/bin/bash -c \"if ! /usr/bin/id $(tomcat_users) 2>&1 | grep -q '(tomcat)'; then /usr/sbin/usermod -aG tomcat $(tomcat_users); fi\"";
+  commands:
+  mysql::
+    "/bin/bash -c \"if ! /usr/bin/id $(mysql_users) 2>&1 | grep -q '(mysql)'; then /usr/sbin/usermod -aG mysql $(mysql_users); fi\"";
+
+  #PASSWORD POLICY
+  commands:
+	Hr03::
+	"/usr/bin/chage -I 30 -M 60 -W 30 $(password_policied)"
+                        action => if_elapsed("60");
+
+  #Allow members of 'tomcat' to become the tomcat user and to restart service
+  files:
+	"/etc/sudoers.d/local"
+		create => "true",
+		perms => mog(440,"root","root"),
+		edit_defaults => empty,
+		edit_line => insert_lines("#Managed by CFEngine
+#Allow deploy to run sudo commands via ssh
+Defaults:deploy !requiretty
+Defaults:deploy visiblepw
+%wheel ALL=(ALL) ALL
+%tomcat ALL=(tomcat) NOPASSWD: ALL
+%tomcat ALL= NOPASSWD: /sbin/service tomcat *");
+
+}
+

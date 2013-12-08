@@ -1,0 +1,28 @@
+bundle agent services
+{
+
+  classes:
+        #chkconfig returns 0 if service is on. ReturnsZero returns returns true if 0.
+        "iptables_onq" expression => returnszero("/sbin/chkconfig iptables", "noshell");
+        "ntpd_onq" expression => returnszero("/sbin/chkconfig ntpd", "noshell");
+
+  commands:
+        #iptables on? turn off.
+        iptables_onq::
+                "/sbin/chkconfig iptables off";
+                "/sbin/service iptables stop";
+        #ntp not on? turn on.
+        !ntpd_onq::
+                "/usr/sbin/ntpdate pool.ntp.org";
+                "/sbin/chkconfig ntpd on";
+                "/sbin/service ntpd start";
+
+  files:
+	"/etc/sysconfig/selinux"
+		edit_defaults => empty,
+		edit_line => insert_lines("SELINUX=permissive$(const.n)SELINUXTYPE=targeted");
+	"/etc/selinux/config"
+		edit_defaults => empty,
+		edit_line => insert_lines("SELINUX=permissive$(const.n)SELINUXTYPE=targeted");
+
+}

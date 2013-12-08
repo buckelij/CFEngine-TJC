@@ -1,0 +1,45 @@
+#!/bin/bash
+#Managed by CFEngine
+# chkconfig: 234 20 80
+# description: Tomcat server basic start/shutdown script
+# processname: tomcat
+JAVA_HOME=/usr/java/default
+export JAVA_HOME
+TOMCAT_HOME=/usr/local/tomcat
+START_TOMCAT=/usr/local/tomcat/bin/startup.sh
+STOP_TOMCAT=/usr/local/tomcat/bin/shutdown.sh
+start() {
+echo -n "Starting tomcat: "
+cd $TOMCAT_HOME
+/bin/su -l -s /bin/sh tomcat -c ${START_TOMCAT}
+echo "done."
+}
+stop() {
+echo -n "Shutting down tomcat: "
+cd $TOMCAT_HOME
+/bin/su -l -s /bin/sh tomcat -c ${STOP_TOMCAT}
+echo "done."
+}
+status() {
+echo -n "Tomcat process: "
+/usr/bin/pgrep -f -U tomcat java.\*${TOMCAT_HOME}
+}
+case "$1" in
+start)
+start
+;;
+stop)
+stop
+;;
+status)
+status
+;;
+restart)
+stop
+sleep 10
+start
+;;
+*)
+echo "Usage: $0 {start|stop|restart|status}"
+esac
+exit 0

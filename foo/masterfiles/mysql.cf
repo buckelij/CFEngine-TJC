@@ -1,0 +1,153 @@
+bundle agent mysql
+{
+### CLASSES ###
+  classes:
+  	"mysqlbootstrap" not => fileexists("/etc/my.cnf"); # a primitive check
+ 	"mysql_onq" expression => returnszero("/sbin/chkconfig mysqld", "noshell");
+	
+### VARS ###
+  vars:
+	mysql::
+	  "mysql_serverid" string => "1"; #unique for replication
+	  "mysql_binlog" string => "log-bin=master";
+	  "mysql_binlog_format" string => "$(def.mysql_binlog_format)";
+	  "mysql_innodb_buffer_pool_size" string => "$(def.mysql_innodb_buffer_pool_size)";
+	  "password" string 
+	    => execresult(
+	     "/bin/echo $(def.mysql_password) | /usr/bin/openssl enc -des3 -d -a -pass file:/etc/cfkey", "useshell");
+
+### PACKAGES ###
+  packages:
+	mysql::
+        	"mysql-server"
+                	package_policy => "add",
+                	package_method => generic;
+
+
+### FILES ###
+   ## Configuration and Init ##
+  files:
+	mysql::
+		"/etc/my.cnf"
+			classes => if_repaired("mysql_reload"), #signal reload if configuration changes
+			create => "true",
+			perms => mog(640, "root", "mysql"),
+			edit_defaults => empty,
+			edit_line => expand_template("/var/cfengine/recipes/mysql/my.cnf");
+ 
+  ## Allow DBAs access to Logs ##
+  files:
+	mysql::
+		"/var/lib/mysql/.*log"
+			create => "false",
+			perms => mog(660, "root", "mysql");
+		"/var/lib/mysql/.*err"
+			create => "false",
+			perms => mog(660, "root", "mysql");
+
+  ## Zabbix Monitoring ##
+  files:
+       "/etc/zabbix/zabbix_agentd/mysql.conf"
+ 		classes => if_repaired("zabbix_reload"),
+		create => "true",
+		perms => m(640),
+		edit_defaults => empty,
+                edit_line => insert_lines("#Managed by CFEngine
+UserParameter=mysql.ping,mysqladmin -ustatus ping|grep alive|wc -l
+UserParameter=mysql.uptime,mysqladmin -ustatus status|cut -f2 -d':'|cut -f1 -d'T'
+UserParameter=mysql.threads,mysqladmin -ustatus status|cut -f3 -d':'|cut -f1 -d'Q'
+UserParameter=mysql.questions,mysqladmin -ustatus status|cut -f4 -d':'|cut -f1 -d'S'
+UserParameter=mysql.slowqueries,mysqladmin -ustatus status|cut -f5 -d':'|cut -f1 -d'O'
+UserParameter=mysql.qps,mysqladmin -ustatus status|cut -f9 -d':'
+UserParameter=mysql.version,mysql -V");
+
+  ## MysqlDump ##
+	"/root/my-secret.cnf"
+		create => "true",
+		perms => m(600),
+		edit_defaults => empty,
+		edit_line => insert_lines("#!/bin/bash
+#Managed by CFEngine
+#use: mysqladmin --defaults-extra-file=/var/cfengine/recipes/mysql/my-secret.cnf
+[client]
+user=root
+password=$(mysql.password)");
+
+	"/root/mysqlbackup.sh"
+		create => "true",
+		perms => m(700),
+		edit_defaults => empty,
+                edit_line => insert_lines("#!/bin/bash
+#Managed by CFEngine
+my_date=`date '+%Y-%m-%d'`
+my_hostname=`hostname -s`
+mkdir -p /root/mysqlbackup
+/usr/bin/find /root/mysqlbackup/ -mtime +3 -type f -exec rm {} ';'
+/usr/bin/mysqldump --defaults-extra-file=/root/my-secret.cnf \
+                   --opt --max_allowed_packet=1G --single-transaction --events --ignore-table=mysql.events \
+                   --all-databases --flush-logs  > /root/mysqlbackup/$my_date$my_hostname.sql
+gzip -f /root/mysqlbackup/$my_date$my_hostname.sql");
+
+  ## DBA access. Note the user is created by authzn.cf ##
+        "/home/mysqldba/my-secret.cnf"
+                create => "true",
+                perms => mog(600, "mysqldba", "mysqldba"),
+                edit_defaults => empty,
+                edit_line => insert_lines("#!/bin/bash
+#Managed by CFEngine
+#use: mysqladmin --defaults-extra-file=/var/cfengine/recipes/mysql/my-secret.cnf
+[client]
+user=root
+password=$(mysql.password)");
+
+	"/var/spool/cron/root"
+		create => "true",
+		perms => m(600),
+		edit_line => edit_mysqlbackup_cron;
+
+### COMMANDS ###
+  #bootstrap commands
+  commands:
+	mysql.mysqlbootstrap::
+		"/sbin/service mysqld start";
+		"/usr/bin/mysqladmin -u root password $(password)";
+
+   #various other commands, e.g. verify certain mysql accounts exist
+   commands:
+	"/bin/bash /var/cfengine/recipes/mysql/mysql_tune.sh";
+
+   #service should start on boot
+   commands:
+	!mysql_onq::
+		"/sbin/chkconfig mysqld on";
+   
+   #service restart commands
+   commands:
+	mysql_reload::
+		"/sbin/service mysqld restart";
+
+   ## ENSURE PROCESSES ARE RUNNING ##
+	processes:
+		mysql::
+			"mysqld"
+			restart_class => "restart_mysqld";
+			"crond"
+			restart_class => "restart_crond";
+
+	## Only restart if a restart isn't already pending ##
+	commands:
+		restart_mysqld.!mysql_bootstrap.!mysql_reload::
+		"/sbin/service mysqld start";
+		restart_crond::
+		"/sbin/service crond start";
+}
+
+bundle edit_line edit_mysqlbackup_cron {
+     delete_lines:
+         ".*/root/mysqlbackup.sh.*";
+     insert_lines:
+       !mysql_disable_backups::
+         "0 23 * * *  /root/mysqlbackup.sh";	
+}
+
+

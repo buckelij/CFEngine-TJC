@@ -1,0 +1,77 @@
+bundle agent mcafee
+{
+### CLASSES ###
+  classes:
+	"mcafee_installed" expression =>  returnszero("/bin/rpm -q McAfeeVSEForLinux | /bin/grep -q $(mcafee_ver)", "useshell");
+
+### VARS ###
+  vars:
+	"mcafee_ver" string => "1.REDACTED";
+
+### PACKAGES ###
+  packages:
+	"unzip"
+        	package_policy => "add",
+        	package_method => generic;
+	"ed"
+        	package_policy => "add",
+        	package_method => generic;
+	"pam"
+		package_architectures => { "i686" },
+                package_policy => "add",
+                package_method => generic;
+	"libstdc++"
+		package_architectures => { "i686" },
+                package_policy => "add",
+                package_method => generic;
+
+
+### FILES ###
+  files:
+	"/root/nails.options"
+		create => "true",
+		perms => m(640),
+		edit_defaults => empty,
+		edit_line => insert_lines("SILENT_ACCEPTED_EULA=\"yes\"
+SILENT_INSTALLDIR=\"/opt/NAI/LinuxShield\"
+SILENT_RUNTIMEDIR=\"/var/opt/NAI/LinuxShield\"
+SILENT_ADMIN=\"admin@example.com\"
+SILENT_HTTPHOST=\"0.0.0.0\"
+SILENT_HTTPPORT=\"55443\"
+SILENT_MONITORPORT=\"65443\"
+SILENT_SMTPHOST=\"0.0.0.0\"
+SILENT_SMTPPORT=\"25\"
+SILENT_NAILS_USER=\"nails\"
+SILENT_NAILS_GROUP=\"nailsgroup\"
+SILENT_CREATE_USER=\"yes\"
+SILENT_CREATE_GROUP=\"yes\"
+SILENT_RUN_WITH_MONITOR=\"yes\"
+SILENT_QUARANTINEDIR=\"/quarantine\"
+SILENT_START_PROCESSES=\"yes\"
+SILENT_CONTINUE_INSTALL_ON_PAM_ERROR=\"yes\"");
+
+### COMMANDS ###
+  commands:
+	!mcafee_installed::
+	"/usr/bin/curl http://REDACTED/McAfeeVSEForLinux-$(mcafee_ver)-release-full.noarch.tar -o /root/McAfeeVSEForLinux-$(mcafee_ver)-release-full.noarch.tar";
+		"/bin/mkdir -p /root/mcafee";
+		"/bin/tar xvf /root/McAfeeVSEForLinux-$(mcafee_ver)-release-full.noarch.tar -C /root/mcafee";
+		"/bin/tar xvfz /root/mcafee/McAfeeVSEForLinux-$(mcafee_ver)-release.tar.gz -C /root/mcafee";
+		"/bin/tar xvfz /root/mcafee/McAfeeVSEForLinux-$(mcafee_ver)-others.tar.gz -C /root/mcafee";
+		"/bin/rpm -U /root/mcafee/MFErt.i686.rpm";
+		"/bin/rpm -U /root/mcafee/MFEcma.i686.rpm";
+		"/bin/bash -c \"umask 0022 && /root/mcafee/McAfeeVSEForLinux-$(mcafee_ver)-installer\"";
+		"/bin/rm -rf /root/mcafee";
+		"/bin/sed -i'' -e 's/log.useSyslog: false/log.useSyslog: true/' /var/opt/NAI/LinuxShield/etc/nailsd.cfg";
+		"/bin/sed -i'' -e 's/nailsd.profile.OAS.scanNWFiles: true/nailsd.profile.OAS.scanNWFiles: false/' /var/opt/NAI/LinuxShield/etc/nailsd.cfg";
+		"/bin/sed -i'' -e 's/nailsd.profile.OAS.scanOnRead: true/nailsd.profile.OAS.scanOnRead: false/' /var/opt/NAI/LinuxShield/etc/nailsd.cfg";
+		"/bin/sed -i'' -e 's/log.syslogDetailLevel: low/log.syslogDetailLevel: normal/' /var/opt/NAI/LinuxShield/etc/nailsd.cfg";
+		"/usr/sbin/usermod -p '$6REDACTED' nails"; #shadow password for nails user
+		"/sbin/service nails restart";
+
+  commands:
+	mcafee_restart::
+		"/sbin/service nails restart";
+
+}
+

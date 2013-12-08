@@ -1,0 +1,61 @@
+bundle agent memcached
+{
+### CLASSES ###
+  classes:
+	"memcached_onq" expression =>  returnszero("/sbin/chkconfig memcached", "noshell");
+
+### VARS ###
+  vars:
+	## PACKAGES ##
+	"mypackages" slist => {
+		"memcached",
+		"php-cli",
+		"php-pecl-memcache"
+	};
+  
+  vars:
+  testenv::
+	"sysconfig[CACHESIZE]" string => "64";
+  prodenv::
+	"sysconfig[CACHESIZE]" string => "128";
+
+
+### PACKAGES ###
+  packages:
+	"$(mypackages)"
+		package_policy => "add",
+		package_method => generic;
+	
+### FILES ###
+  files:
+	"/etc/sysconfig/memcached"
+		classes => if_repaired(restart_memcached),
+		create => "false",
+		edit_line => set_variable_values("memcached.sysconfig");
+  	"/etc/zabbix/memcached.php"
+		create => "true",
+		perms => m(644),
+		edit_defaults => empty,
+		edit_line => insert_lines("<?php
+                      $hostname=gethostname();
+                      $m=new Memcache; $m->connect($hostname,11211); $s=$m->getstats();
+		      $zkeys = array('bytes', 'cmd_get', 'cmd_set', 'curr_connections',
+		      	     	     'curr_items', 'get_hits', 'get_misses', 'limit_maxbytes', 'uptime');
+                      foreach($zkeys as $key){
+                       exec(\"/usr/bin/zabbix_sender -z REDACTED -p 10051 -s $hostname -k memcached[$key] -o $s[$key]\"); 
+                      }?>");
+	"/var/spool/cron/memcached"
+		create => "true",
+		perms => m(600),
+		edit_defaults => empty,
+		edit_line => insert_lines("*/3 * * * * /usr/bin/php /etc/zabbix/memcached.php");
+		
+### COMMANDS ###
+  commands:
+	!memcached_onq::
+		"/sbin/chkconfig memcached on";
+		"/sbin/service memcached start";
+  commands:
+	restart_memcached::
+		"/sbin/service memcached restart";
+}

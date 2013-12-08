@@ -1,0 +1,56 @@
+bundle agent vmware_tools 
+{
+vars:
+
+  "centos_vmware_repo" string =>
+                "#Managed by CFEngine
+[vmware-tools]
+name=VMware Tools for Red Hat Enterprise Linux
+baseurl=http://packages.vmware.com/tools/esx/5.1latest/rhel6/$basearch
+enabled=1
+gpgcheck=0";
+
+files:
+  "/etc/yum.repos.d/vmware.repo"
+        create => "true",
+        edit_defaults => empty,
+        edit_line => insert_lines($(centos_vmware_repo));
+
+packages:
+  "vmware-open-vm-tools-kmod"
+	package_policy => "delete",
+	package_method => generic;
+  "vmware-open-vm-tools-xorg-drv-mouse"
+	package_policy => "delete",
+	package_method => generic;
+  "vmware-open-vm-tools"
+	package_policy => "delete",
+	package_method => generic;
+  "vmware-open-vm-tools-common"
+	package_policy => "delete",
+	package_method => generic;
+  "vmware-tools-nox"
+	package_policy => "delete",
+	package_method => generic;
+  "vmware-open-vm-tools-xorg-utilities"
+	package_policy => "delete",
+	package_method => generic;
+  "vmware-tools"
+	package_policy => "delete",
+	package_method => generic;
+  "vmware-open-vm-tools-nox"
+	package_policy => "delete",
+	package_method => generic;
+  "vmware-tools-common"
+	package_policy => "delete",
+	package_method => generic;
+  "vmware-open-vm-tools-xorg-drv-display"
+	package_policy => "delete",
+	package_method => generic;
+
+packages:
+  "vmware-tools-esx"
+	package_policy => "add",
+	package_method => generic;
+	
+}

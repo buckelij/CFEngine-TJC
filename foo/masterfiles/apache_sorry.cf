@@ -1,0 +1,107 @@
+bundle agent apache_sorry
+{
+### CLASSES ###
+
+### VARS ###
+  vars:
+#####ADD NEW SORRY PAGE ENTRIES HERE#####
+#####
+ ###
+  #
+# "mysorryports[<site-fqdn>]" string => "free-apache-listen-port";
+  "mysorryports[www.example.com]" string => "81";
+  "mysorryports[magic.example.com]" string => "82";
+  #
+ ###
+#####
+#####END EDIT############################
+
+  "mysorrypages" slist => getindices("mysorryports");
+
+  "mypackages" slist => { "httpd" };
+
+### PACKAGES ###
+  packages:
+        "$(mypackages)"
+                package_policy => "add",
+                package_method => generic;
+  files:
+	"/var/www/html/."
+		create => "false",
+		perms => mog("2770", "apache", "apache"),
+		classes => if_repaired(apache_acl);
+	"/var/log/httpd/."
+		create => "false",
+		perms => m("755");
+	"/etc/httpd/conf/httpd.conf"
+		create => "false",
+		classes => if_repaired(restart_apache),
+		edit_line => EditSorryHttpd;
+	"/etc/httpd/conf.d/trace.conf"
+		create => "true",
+		classes => if_repaired(restart_apache),
+		perms => m(644),
+		edit_line => insert_lines("TraceEnable off");
+	"/etc/httpd/conf.d/$(mysorrypages).conf"
+		create => "true",
+		edit_defaults => empty,
+		classes => if_repaired(restart_apache),
+                perms => m(644),
+		edit_line => insert_lines("Listen $(mysorryports[$(mysorrypages)])
+<VirtualHost *:$(mysorryports[$(mysorrypages)])>
+DocumentRoot /var/www/html/$(mysorrypages)
+RewriteEngine On
+#send a 503 if / is requested
+RewriteCond %{REQUEST_URI} =/
+RewriteRule ^ - [L,R=503]
+#otherwise, if the requested file exists, serve it
+RewriteCond %{LA-U:REQUEST_FILENAME} -f
+RewriteRule ^ - [L]
+#otherwise, redirect to / (which will then send a 503)
+RewriteRule (.*) / [R=302]
+Header always set Retry-After '7200'
+ErrorDocument 503 /index.html
+</VirtualHost>");
+ 	"/var/www/html/$(mysorrypages)/."
+		create => "true",
+		perms => mog("770", "apache", "apache"),
+                classes => if_repaired(apache_acl);
+
+  commands:
+	apache_acl::
+	"/usr/bin/setfacl -R -d -m g:apache:rwX /var/www/html";
+
+  processes:
+       "httpd"
+        	restart_class => "restart_apache";
+
+        ## Only restart if a restart isn't already pending ##
+  commands:
+	restart_apache::
+		"/sbin/chkconfig httpd on";
+		"/sbin/service httpd graceful";
+
+ }
+
+bundle edit_line EditSorryHttpd 
+{
+        delete_lines:
+        ".*AllowOverride None.*"
+                select_region => Sorry_Directory_Section("/var/www/html");
+	"CustomLog logs/access_log combined";
+        "CustomLog logs/access_log \"%{X-Forwarded-For.*";
+
+        insert_lines:
+        "AllowOverride All"
+                select_region => Sorry_Directory_Section("/var/www/html");
+	"CustomLog logs/access_log \"%{X-Forwarded-For}i %h %l %u %t \\\"%r\\\" %>s %b \\\"%{Referer}i\\\" \\\"%{User-Agent}i\\\"\""
+                location => after("LogLevel.*");
+}
+
+body select_region Sorry_Directory_Section(x)
+{
+        select_start => "<Directory \"$(x)\">";
+        select_end => "</Directory>";
+}
+
+

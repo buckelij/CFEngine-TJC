@@ -1,0 +1,173 @@
+#configures the automounter to mount the necessary samba fileshares.
+#
+# NOTE: the credentials file must be created by hand and is not managed by CFEngine!
+#
+# NOTE: credentials files are stored in /etc/autocreds, an ecryptfs volume 
+#
+
+bundle agent smb_mounts{
+
+classes:
+	"autocreds_mounted" expression => returnszero("/bin/mount | /bin/grep -q /etc/autocreds", "useshell");
+
+###BEGIN EDIT###
+#creates additional auto_mnt lines for each <mount_location>
+#Don't forget to then edit /etc/autocreds/<mount_location>
+#Use only [a-z][A-Z][0-9] and '-' for the <mount_location>
+vars:
+	prodenv::
+        "auto_mnt[data]" string =>        " ://filer.REDACTED.net/data/foo";
+        "auto_mnt[reports]" string =>         " ://filer.REDACTED.net/prod/reports";
+	testenv::
+        "auto_mnt[data]" string =>        " ://filer.REDACTED.net/test/data-foo";
+        "auto_mnt[reports]" string =>         " ://filer.REDACTED.net/test/reports";
+###END EDIT###
+
+vars:
+        "mypackages" slist => {
+                "cifs-utils",
+                "autofs", 
+		"samba-client",
+		"ecryptfs-utils",
+        };
+	
+	"autocreds_mntpnt" slist => getindices("auto_mnt");
+
+packages:
+        "$(mypackages)"
+		classes => if_repaired("autofs_start"),
+                package_policy => "add",
+                package_method => generic;
+
+files:
+        "/data/mounted/."
+                create => "true",
+                perms => m(751);
+	"/etc/auto.master"
+		create => "false",
+		edit_defaults => empty,
+		edit_line => insert_lines("/data/mounted /etc/auto.data_mounted");
+	"/etc/auto.data_mounted"
+		classes => if_repaired("autofs_reload"),
+		create => "true",
+		perms => m(644),
+		edit_defaults => empty,
+		edit_line => edit_auto_data_mounted;
+	"/usr/local/bin/autofs_keepalive.sh"
+		create => "true",
+		perms => m(755),
+		edit_defaults => empty,
+		edit_line => edit_autofs_keepalive;
+
+files:
+	#only put in the stub files if the ecryptfs volume is mounted
+	autocreds_mounted::
+	"/etc/autocreds/$(autocreds_mntpnt)"
+		create => "true",
+		perms => m(600);
+
+#CRON
+files:
+	"/var/spool/cron/root"
+		create => "true",
+		perms => m(600),
+		edit_line => edit_root_cron_smb_mounts;
+
+#ECRYPTFS
+files:
+	"/etc/autocreds/."
+		create => "true",
+		perms => m(700);
+	"/etc/ecryptfs.autocreds"
+		create => "true",
+		perms => m(600),
+		edit_defaults => empty,
+		edit_line => insert_lines("passphrase_passwd=REDACTED");
+	"/etc/fstab"
+		create => "false",
+		edit_line => edit_autocreds_mount;
+
+#ZABBIX MONITOR
+files:
+        "/etc/zabbix/autofs_mount.sh"
+                create => "true",
+                perms => m(755),
+                edit_defaults => empty,
+                edit_line => edit_autofs_mount_sh;
+
+        "/etc/zabbix/zabbix_agentd/autofs_mount.conf"
+                create => "true",
+                perms => m(640),
+                edit_defaults => empty,
+                edit_line => insert_lines("UserParameter=tjc.autofs_mount,/etc/zabbix/autofs_mount.sh");
+
+
+commands:
+	autofs_reload::
+		"/sbin/service autofs reload";
+	autofs_start::
+		"/sbin/service autofs restart";
+commands:
+	!autocreds_mounted::
+		"/bin/mount /etc/autocreds";
+
+}
+
+bundle edit_line edit_auto_data_mounted {
+	vars:
+		"auto_mntpnt" slist => getindices("smb_mounts.auto_mnt");
+
+        delete_lines:
+                ".*";
+        insert_lines:
+	        "$(auto_mntpnt) -fstype=cifs,rw,uid=_servu,credentials=/etc/autocreds/$(auto_mntpnt)$(smb_mounts.auto_mnt[$(auto_mntpnt)])";
+}
+
+bundle edit_line edit_autocreds_mount {
+	delete_lines:
+		"/etc/autocreds.*";
+	insert_lines:
+		"/etc/autocreds /etc/autocreds ecryptfs rw,ecryptfs_cipher=aes,ecryptfs_key_bytes=16,ecryptfs_unlink_sigs,ecryptfs_passthrough=no,no_sig_cache,ecryptfs_enable_filename_crypto=no,key=passphrase:passphrase_passwd_file=/etc/ecryptfs.autocreds 0 0";
+}
+
+bundle edit_line edit_autofs_keepalive {
+insert_lines:
+"#!/bin/bash
+  FILESYSTEMS=$(awk '{print $1}' /etc/auto.data_mounted)
+  #loop through filesystems to ensure autofs mounts them
+  for i in $FILESYSTEMS
+  do
+    ls \"/data/mounted/$i\" > /dev/null 2>&1
+  done
+";      
+}
+
+bundle edit_line edit_root_cron_smb_mounts {
+  delete_lines:
+	".*autofs_keepalive.sh.*";
+  insert_lines:
+	"*/2 * * * * /usr/local/bin/autofs_keepalive.sh >/dev/null";
+}
+
+bundle edit_line edit_autofs_mount_sh {
+insert_lines:
+"#!/bin/bash
+  #checks that filesystems that the filesystems specified in auto.data_mounted are in fact mounted
+  FILESYSTEMS=$(awk '{print $1}' /etc/auto.data_mounted)
+  if [[ $? -ne 0 ]]; then echo 2 && exit; fi
+  #loop through filesystems to ensure autofs mounts them
+  for i in $FILESYSTEMS
+  do
+    ls \"/data/mounted/$i\" > /dev/null 2>&1
+  done
+  #verify the filesystem is mounted
+  MOUNTSTATUS=1
+  for i in $FILESYSTEMS
+  do
+    grep -q \"/data/mounted/$i\" /proc/mounts
+    if [[ $? -ne 0 ]]; then MOUNTSTATUS=0; fi
+  done
+  echo $MOUNTSTATUS
+";     
+}
+

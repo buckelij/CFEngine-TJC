@@ -1,0 +1,83 @@
+bundle agent nfs_logs {
+#NFS
+#NFS server
+classes:
+	web::
+	"nfs_onq" expression =>  returnszero("/sbin/chkconfig nfs", "noshell");
+	"nfs_startedq" expression =>  returnszero("/sbin/service nfs status >/dev/null", "useshell");
+#NFS client
+classes:
+	"netfs_onq" expression => returnszero("/sbin/chkconfig netfs", "noshell");
+	"nfslock_onq" expression =>  returnszero("/sbin/chkconfig nfslock", "noshell");
+	"rpcbind_onq" expression =>  returnszero("/sbin/chkconfig rpcbind", "noshell");
+	"nfslock_startedq" expression =>  returnszero("/sbin/service nfslock status >/dev/null", "useshell");
+	"rpcbind_startedq" expression =>  returnszero("/sbin/service rpcbind status >/dev/null", "useshell");
+	"netfs_onq" expression => returnszero("/sbin/chkconfig netfs", "noshell");
+	"nfslock_onq" expression =>  returnszero("/sbin/chkconfig nfslock", "noshell");
+	"rpcbind_onq" expression =>  returnszero("/sbin/chkconfig rpcbind", "noshell");
+	"nfslock_startedq" expression =>  returnszero("/sbin/service nfslock status >/dev/null", "useshell");
+	"rpcbind_startedq" expression =>  returnszero("/sbin/service rpcbind status >/dev/null", "useshell");
+vars:
+	"nfs_tomcat_logs_client" string => "$(def.servers_sorryfoo)";
+	"nfs_tomcat_logs_server" slist => { "$(def.servers_webfoo00)", "(def.servers_webfoo01)", "$(def.servers_webfootest00)", "(def.servers_webfootest01)"  } ;
+	"nfs_mountops" slist => {"nfsvers=3", "soft"};
+
+packages:
+	"nfs-utils"
+		package_policy => "add",
+		package_method => generic;
+
+#File Stores
+files:
+	sorry_server::
+        "/data/."
+                create => "true",
+                perms => m(755);
+	"/data/tomcat_logs/."
+		create => "true";
+	"/data/tomcat_logs/$(nfs_tomcat_logs_server)/."
+		create => "true";
+
+#NFS
+files:
+	web::
+	"/etc/exports"
+		classes => if_repaired("nfs_restart"),
+		create => "false",
+		edit_defaults => empty,
+		edit_line => insert_lines("/usr/local/tomcat/logs $(nfs_tomcat_logs_client)(ro)");
+
+#NFS
+#NOTE: the storage class as used here will not modify or remount an existing mount. 
+#      If the nfs_mountops change, for example, you will need to remove the old entry
+#      from /etc/fstab, unmount, and then re-apply the configuration.
+storage:
+	sorry_server::
+	"/data/tomcat_logs/$(nfs_tomcat_logs_server)/"
+	  mount => nfs_p("$(nfs_tomcat_logs_server)", "/usr/local/tomcat/logs", @(nfs_mountops)),
+	  classes => if_repaired("nfs_mountall");
+
+
+commands:
+	!netfs_onq::
+		"/sbin/chkconfig netfs on";
+commands:
+	!rpcbind_onq|!rpcbind_startedq::
+		"/sbin/chkconfig rpcbind on";
+		"/sbin/service rpcbind start";
+commands:
+	!nfslock_onq|!nfslock_startedq::
+		"/sbin/chkconfig nfslock on";
+		"/sbin/service nfslock start";
+commands:
+	dataplatform.(!nfs_onq|!nfs_startedq)::
+		"/sbin/chkconfig nfs on";
+		"/sbin/service nfs start";
+commands:
+	nfs_restart::
+		"/sbin/service nfs restart";
+commands:
+	nfs_mountall::
+		"/bin/mount -a -t nfs";
+
+}

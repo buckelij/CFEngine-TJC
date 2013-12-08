@@ -1,0 +1,57 @@
+bundle agent glpi
+{
+### CLASSES ###
+  classes:
+	"fusioninventory_agent_onq" expression =>  returnszero("/sbin/chkconfig fusioninventory-agent", "noshell");
+
+### VARS ###
+  vars:
+	## PACKAGES ##
+	"mypackages" slist => {
+		"fusioninventory-agent",
+		"perl-Proc-Daemon", #apparently, fusioninventory 2.2.7-22 doesn't list all dependencies
+	};
+
+	## /ETC/SYSCONFIG/FUSIONINVENTORY-AGENT ##
+	"fusioninventory_agent_lines" string => 
+		"#Managed by CFEngine
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+FUSINVOPT='--rpc-trust-localhost'
+OCSMODE[0]=daemon
+OCSPAUSE[0]=120
+OCSTAG[0]=root";
+
+	## /ETC/FUSIONINVENTORY/AGENT.CF ##
+	"agent_cfg_lines" string => 
+		"#Managed by CFEngine
+share-dir=/usr/share/perl5/vendor_perl/auto/share/dist/FusionInventory-Agent
+basevardir=/var/lib/fusioninventory-agent
+logfile=agent.log
+server='https://REDACTED/plugins/fusioninventory/front/plugin_fusioninventory.communication.php'
+no-ssl-check=1";
+
+### PACKAGES ###
+  packages:
+	"$(mypackages)"
+		package_policy => "add",
+		package_method => generic;
+	
+### FILES ###
+  files:
+	"/etc/sysconfig/fusioninventory-agent"
+		create => "true",
+		perms => m(644),
+		edit_defaults => empty,
+		edit_line => insert_lines($(fusioninventory_agent_lines));
+	"/etc/fusioninventory/agent.cfg"
+		create => "true",
+		perms => m(644),
+		edit_defaults => empty,
+		edit_line => insert_lines($(agent_cfg_lines));
+
+### COMMANDS ###
+  commands:
+	!fusioninventory_agent_onq::
+		"/sbin/chkconfig fusioninventory-agent on";
+		"/sbin/service fusioninventory-agent start";
+}

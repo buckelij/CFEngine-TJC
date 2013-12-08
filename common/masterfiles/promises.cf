@@ -1,0 +1,200 @@
+#   promises.cf - Basic Policy for Community
+
+#EDITING: In the sections below:
+#1. ROLES EDIT: Define the roles and classes required by the recipes
+#2. SERVERS EDIT: Define server addresses and groups for ACLs
+#3. INPUTS EDIT: Define additional input files for the recipe
+#4. SEQUENCE EDIT: Define which classes will execute which bundles
+#5. ACL EDIT: Define which ACL groups may access the recipes
+
+
+# common def
+#  - common/global variables and classes here  
+#  - Also defines server classes and bundles and inputs for those classes
+bundle common def
+{
+##CLASSES##
+# classes:
+
+##VARS##
+# vars:
+#  prodenv.web::
+
+## Servers ##
+vars:
+  ## ACL Groups##
+  "acl" slist => { 
+                   "$(sys.policy_hub)/32" #just myself by default
+                   },
+       comment => "Define an acl for the machines to be granted accesses",
+        handle => "common_def_vars_acl"; 
+
+  "domain"  string => "tjcdmz.net",
+              comment => "Define a global domain for all hosts",
+               handle => "common_def_vars_domain";
+  "dir_masterfiles" string => translatepath("$(sys.workdir)/masterfiles"),
+                   comment => "Define masterfiles path",
+                    handle => "common_def_vars_dir_masterfiles";
+}
+
+body common control
+{
+ bundlesequence => { "main" };
+ inputs => { "cfengine_stdlib.cf", "yum_repos.cf", "vmware_tools.cf", 
+	     "glpi.cf", "zabbix.cf", "packages.cf", "cleanup.cf",
+	     "services.cf", "mcafee.cf", "mcafee_excludes.cf" };
+
+ version => "Community Promises.cf 1.0.0";
+}
+
+bundle agent main
+{
+ files:
+        "/var/cfengine/."
+        perms => m(770);
+
+  methods:
+	any::
+		"any" usebundle => first;
+		"any" usebundle => vmware_tools;
+		"any" usebundle => yum_repos;
+		"any" usebundle => glpi;
+		"any" usebundle => zabbix;
+		"any" usebundle => packages;
+		"any" usebundle => services;
+		"any" usebundle => mcafee;
+		"any" usebundle => mcafee_excludes;
+		"any" usebundle => cleanup;
+}
+
+
+bundle server access_rules()
+{
+ access:
+	any::
+	"$(def.dir_masterfiles)"
+	  admit => { @(def.acl) };
+	#Per-Role 'Recipe' access
+	"/var/cfengine/recipes/mysql"
+          admit => { @(def.acl) };
+	"/var/cfengine/recipes/tomcat"
+	  admit => { @(def.acl) };
+
+ roles:
+ #allow root to define classes via cf-runagent
+".*"  authorize => { "root" };
+}
+
+
+###########################################
+###########################################
+###########################################
+#You Shouldn't Have to Edit Below This Line
+###########################################
+###########################################
+###########################################
+
+
+# This part is for cf-agent 
+# Settings describing the details of the fixed behavioural promises
+body agent control
+{
+ any::
+ # Global default for minutes that must elapse before promise will be rechecked.
+  ifelapsed => "5";
+ # Do not send IP/name during server connection if address resolution is broken.
+  skipidentify => "true";
+}
+
+# This part is for cf-serverd
+# Server controls are mainly about determining access policy for the connection 
+# Access to specific files must be granted in addition. 
+# You may want to 'service cfengine3 restart' on the master after ACL updates
+body server control 
+{
+ denybadclocks         => "false";
+ allowconnects         => { "127.0.0.1" , "::1", @(def.acl) };
+ allowallconnects      => { "127.0.0.1" , "::1", @(def.acl) };
+ trustkeysfrom         => { "127.0.0.1" , "::1", @(def.acl) };
+ skipverify            => { ".*$(def.domain)", "127.0.0.1" , "::1", @(def.acl) };
+ allowusers            => { "root" };
+ cfruncommand          => "$(sys.cf_agent)"; #allow cf-runagent
+}
+
+# This part is for cf-execd
+# These body settings determine the behaviour of cf-execd, including scheduling
+# times and output capture to $(sys.workdir)/outputs and relay via email.
+body executor control
+{
+ any::
+  splaytime  => "1";
+  mailto     => "root@localhost";
+  mailfrom   => "cfengine@localhost";
+  smtpserver => "localhost";
+  mailmaxlines => "0";
+  # Default:
+  # schedule => { "Min00", "Min05", "Min10", "Min15", "Min20", "Min25", 
+  #               "Min30", "Min35", "Min40", "Min45", "Min50", "Min55" };
+
+  # The full path and command to the executable run by default (overriding builtin).
+  linux::
+   exec_command => "$(sys.cf_twin) -f failsafe.cf && $(sys.cf_agent)";
+}
+
+# This part is for cf-report
+# Determines a list of reports to write into the build directory. 
+body reporter control
+{
+ any::
+  reports => { 
+             "all" 
+             };
+  build_directory => "$(sys.workdir)/reports";
+  report_output   => "html";
+  style_sheet => "/cf_enterprise.css";
+}
+
+# This part is for cf-runagent
+# The most important parameter here is the list of hosts to poll
+body runagent control
+{
+# A list of hosts to contact when using cf-runagent
+ any::
+  hosts =>  { @(def.servers_all) };
+}
+
+# This part is for cf-monitord
+# The system defaults will be sufficient for most users. 
+body monitor control
+{
+ any::
+  forgetrate => "0.7";
+  histograms => "true";
+}
+
+# Some initial reports and commands
+bundle agent first
+{
+ vars:
+  "redhat_release" string => execresult("/bin/cat /etc/redhat-release", "noshell");
+
+ files:
+  linux::
+	"/etc/motd" 
+		edit_defaults => empty,
+		edit_line => insert_lines("This system is managed by CFEngine. Manual modifications may be overwritten.");
+
+ reports:
+  cfengine_3::
+   "--> CFE is running on $(sys.fqhost)"
+      comment => "Display message on screen/email",
+       handle => "first_reports_cfe_running";
+  linux::
+   "--> Release: $(first.redhat_release)"
+      comment => "Display redhat release version",
+      handle => "first_reports_redhat_release";
+
+  commands:
+      	run_cfagent_failsafe::
+                "/var/cfengine/bin/cf-agent -K -f /var/cfengine/masterfiles/failsafe.cf";
+}

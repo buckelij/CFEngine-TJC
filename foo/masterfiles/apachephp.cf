@@ -1,0 +1,78 @@
+bundle agent apachephp
+{
+### CLASSES ###
+
+### VARS ###
+  vars:
+  "mypackages" slist => { "httpd", "php", "php-gd", "php-mbstring", "php-pdo", "php-xml", "php-mysql", "subversion" };
+  "phpini[post_max_size]" string => " 16M";
+  "phpini[upload_max_filesize]" string => " 10M";
+
+### PACKAGES ###
+  packages:
+        "$(mypackages)"
+        package_policy => "add",
+        package_method => generic;
+  files:
+	"/var/www/html/."
+		create => "false",
+		perms => mog("2770", "apache", "apache"),
+		classes => if_repaired(apache_acl);
+	"/var/log/httpd/."
+		create => "false",
+		perms => m("755");
+	"/etc/httpd/conf/httpd.conf"
+		create => "false",
+		classes => if_repaired(restart_apache),
+		edit_line => EditHttpd;
+	"/etc/httpd/conf.d/trace.conf"
+		create => "true",
+		classes => if_repaired(restart_apache),
+		perms => m(644),
+		edit_line => insert_lines("TraceEnable off");
+	"/etc/php.ini"
+		create => "false",
+		classes => if_repaired(restart_apache),
+		edit_line => set_variable_values("apachephp.phpini");
+
+  commands:
+	apache_acl::
+	"/usr/bin/setfacl -R -d -m g:apache:rwX /var/www/html";
+
+  processes:
+       "httpd"
+        	restart_class => "restart_apache";
+
+  ## Only restart if a restart isn't already pending ##
+  commands:
+	restart_apache::
+		"/sbin/chkconfig httpd on";
+		"/sbin/service httpd graceful";
+
+ }
+
+bundle edit_line EditHttpd 
+{
+        delete_lines:
+        ".*AllowOverride None.*"
+                select_region => Directory_Section("/var/www/html");
+	".*Options.*"
+                select_region => Directory_Section("/var/www/html");
+	"CustomLog logs/access_log combined";
+        "CustomLog logs/access_log \"%{X-Forwarded-For.*";
+
+        insert_lines:
+        "AllowOverride All"
+                select_region => Directory_Section("/var/www/html");
+	"Options -Indexes FollowSymLinks"
+                select_region => Directory_Section("/var/www/html");
+	"CustomLog logs/access_log \"%{X-Forwarded-For}i %h %l %u %t \\\"%r\\\" %>s %b \\\"%{Referer}i\\\" \\\"%{User-Agent}i\\\"\""
+                location => after("LogLevel.*");
+}
+
+body select_region Directory_Section(x)
+{
+        select_start => "<Directory \"$(x)\">";
+        select_end => "</Directory>";
+}
+

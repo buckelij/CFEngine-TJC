@@ -1,0 +1,46 @@
+bundle agent openldap
+{
+#Installs and configures openldap
+#After initial configuration, changes should be made via cn=config ldap modifications
+#
+#If you want to re-bootstrap, remove the package and delete /etc/openldap
+#
+#EDIT recipes/openldap/bootstrap.sh for the good stuff
+#
+  classes:
+        "openldap_onq" expression => returnszero("/sbin/chkconfig slapd", "noshell");
+
+  vars:
+        "openldap_packages" slist => { "openldap-servers", "openldap-clients" };
+
+  packages:
+        "$(openldap_packages)"
+                package_policy => "add",
+                package_method => generic,
+                classes => if_repaired("openldap_bootstrap");
+
+  files:
+	"/var/spool/cron/root"
+                create => "true",
+                perms => m(600),
+                edit_line => insert_lines("0 17 * * *  /usr/sbin/slapcat -l /root/openldap_backup.ldif");
+
+  commands:
+        !openldap_onq.openldap_bootstrap.prodenv::
+                "/bin/bash /var/cfengine/recipes/openldap/bootstrap.sh";
+
+  commands:
+        !openldap_onq::
+                "/sbin/chkconfig slapd on";
+
+  processes:
+        !openldap_bootstrap::
+                "slapd"
+                restart_class => "restart_slapd";
+
+  commands:
+        restart_slapd::
+                "/sbin/service slapd restart";
+
+}
+
