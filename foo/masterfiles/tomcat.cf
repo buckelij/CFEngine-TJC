@@ -90,6 +90,7 @@ bundle agent tomcat
 		"/bin/ln -s /usr/local/$(tomcat_version) /usr/local/tomcat";
 		"/bin/chown -R tomcat /usr/local/tomcat/";
 		#start new version
+		"/sbin/chkconfig -add tomcat"
 		"/sbin/chkconfig tomcat on"
 		classes => if_repaired("tomcat_bootstrap_complete");
 
@@ -99,6 +100,7 @@ bundle agent tomcat
 
   commands:
         !tomcat_onq::
+                "/sbin/chkconfig --add tomcat";
                 "/sbin/chkconfig tomcat on";
 
   
