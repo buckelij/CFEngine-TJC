@@ -1,0 +1,136 @@
+bundle agent tomcat_multi(tomcat_instance, tomcat_port, tomcat_shutdown_port, tomcat_ajp_port)
+{
+### CLASSES ###
+  classes:
+	"tomcat_version_ok" expression => fileexists("/usr/local/$(tomcat_version)-$(tomcat_instance)");
+	"tomcat_user_exists" expression => userexists("tomcat-$(tomcat_instance)");
+	"remove_tomcat_examples" expression => fileexists ("/usr/local/$(tomcat_instance)/webapps/examples");
+	"remove_tomcat_docs" expression => fileexists ("/usr/local/$(tomcat_instance)/webapps/docs");
+	"remove_tomcat_manag" expression => fileexists ("/usr/local/$(tomcat_instance)/webapps/manager");
+	"remove_tomcat_hmanag" expression => fileexists ("/usr/local/$(tomcat_instance)/webapps/host-manager");
+ 	"tomcat_onq" expression => returnszero("/sbin/chkconfig tomcat-$(tomcat_instance)", "noshell");
+
+### VARS ###
+  vars:
+	"tomcat_version" string => "apache-tomcat-7.0.34";
+
+### PACKAGES ###
+    packages:
+                "jre"
+                        package_policy => "add",
+                        package_method => generic;
+
+
+### FILES ###
+  files:
+    (tomcat_version_ok|tomcat_bootstrap_complete)::
+	"/etc/init.d/tomcat-$(tomcat_instance)"
+		classes => if_repaired("tomcat_restart"),
+		create => "true",
+		perms => m(755),
+                edit_defaults => empty,
+                edit_line => expand_template("/var/cfengine/recipes/tomcat_multi/tomcat_init");
+	"/usr/local/bin/tjc-$(tomcat_instance)-deploy.sh"
+		perms => m(755),
+		create => "true",
+		edit_defaults => empty,
+		edit_line => expand_template("/var/cfengine/recipes/tomcat_multi/deploy.sh");
+	"/usr/local/$(tomcat_instance)/bin/catalina.sh"
+		classes => if_repaired("tomcat_restart"),
+		create => "false",
+		edit_line => edit_tomcat_javaopts;
+	"/usr/local/$(tomcat_instance)/conf/server.xml"
+		classes => if_repaired("tomcat_restart"),
+                perms => mog(600, "tomcat-$(tomcat_instance)", "root"),
+		create => "false",
+                edit_defaults => empty,
+                edit_line => expand_template("/var/cfengine/recipes/tomcat_multi/server.xml");
+	"/usr/local/$(tomcat_instance)/."
+		create => "false",
+		perms => mog("751", "tomcat-$(tomcat_instance)", "tomcat-$(tomcat_instance)");
+	"/usr/local/$(tomcat_instance)/webapps/."
+		create => "false",
+		perms => mog("2770", "tomcat-$(tomcat_instance)", "tomcat-$(tomcat_instance)");
+        "/etc/sudoers.d/tomcat-$(tomcat_instance)"
+                create => "true",
+                perms => mog(440,"root","root"),
+                edit_defaults => empty,
+                edit_line => insert_lines("#Managed by CFEngine
+%tomcat-$(tomcat_instance) ALL= NOPASSWD: /sbin/service tomcat-$(tomcat_instance) *
+%tomcat-$(tomcat_instance) ALL=(tomcat-$(tomcat_instance)) NOPASSWD: ALL");
+
+
+### COMMANDS ###
+  commands:
+	!tomcat_user_exists::
+		"/usr/sbin/useradd -M -d /var/empty tomcat-$(tomcat_instance)";
+  
+  commands:
+    #tomcat link already exists, but is out of date, upgrade
+    #if this is an intial bootstrap, you may get warnings you won't get during an upgrade	
+	!tomcat_version_ok::
+	  #download new version
+	  "/usr/bin/curl http://REDACTED.example.com/$(tomcat_version).tar.gz -o /tmp/$(tomcat_version).tar.gz";
+	  "/bin/tar -C /usr/local/ -xvf /tmp/$(tomcat_version).tar.gz";
+	  "/bin/mv /usr/local/$(tomcat_version) /usr/local/$(tomcat_version)-$(tomcat_instance)";
+	  #stop old version
+	  "/sbin/service tomcat-$(tomcat_instance) stop";
+	  "/bin/sleep 5";
+	  "/usr/bin/pkill -9 -f -U tomcat-$(tomcat_instance) java.\\*/usr/local/$(tomcat_instance)";
+	  #copy applications
+	  "/bin/rm -rf /usr/local/$(tomcat_version)-$(tomcat_instance)/webapps/ROOT";
+	  "/bin/bash -c \"/bin/cp -r /usr/local/$(tomcat_instance)/webapps/*.war /usr/local/$(tomcat_version)-$(tomcat_instance)/webapps\"";
+	  #run local migration script (copy various application-related data, etc)
+          #"/bin/bash /var/cfengine/recipes/tomcat_multi/$(tomcat_instance)-migrate.sh /usr/local/$(tomcat_version)/";
+ 	  #link in new version
+	  "/bin/unlink /usr/local/$(tomcat_instance)";
+	  "/bin/ln -s /usr/local/$(tomcat_version)-$(tomcat_instance) /usr/local/$(tomcat_instance)";
+	  "/bin/chown -R tomcat-$(tomcat_instance) /usr/local/$(tomcat_instance)/";
+	  #start new version
+	  "/sbin/chkconfig --add tomcat-$(tomcat_instance)";
+	  "/sbin/chkconfig tomcat-$(tomcat_instance) on"
+	  classes => if_repaired("tomcat_bootstrap_complete");
+
+  commands:
+	tomcat_restart::
+		"/sbin/service tomcat-$(tomcat_instance) restart";
+
+  commands:
+        !tomcat_onq::
+                "/sbin/chkconfig --add tomcat-$(tomcat_instance)";
+                "/sbin/chkconfig tomcat-$(tomcat_instance) on";
+
+  
+  commands:
+	remove_tomcat_examples::
+		"/bin/rm -rf /usr/local/$(tomcat_instance)/webapps/examples";
+
+  commands:
+	remove_tomcat_docs::
+		"/bin/rm -rf /usr/local/$(tomcat_instance)/webapps/docs";
+
+  commands:
+	remove_tomcat_manag::
+		"/bin/rm -rf /usr/local/$(tomcat_instance)/webapps/manager";
+
+  commands:
+	remove_tomcat_hmanag::
+		"/bin/rm -rf /usr/local/$(tomcat_instance)/webapps/host-manager";
+
+### REPORTS ###		
+  reports:
+	tomcat_version_ok::
+		"tomcat-$(tomcat_instance) version is OK at $(tomcat_version)";
+	!tomcat_version_ok::
+		"tomcat-$(tomcat_instance) version NOT OK";
+}
+
+### EDIT LINE BODY FOR /USR/LOCAL/TOMCAT/BIN/CATALINA.SH ###
+bundle edit_line edit_tomcat_javaopts {
+	delete_lines:
+		"JAVA_OPTS=.*";
+	insert_lines:
+		"#Managed by CFEngine
+$(def.tomcat_$(tomcat_multi.tomcat_instance)_java_opts)",
+		location => after("#!/bin/sh");
+}

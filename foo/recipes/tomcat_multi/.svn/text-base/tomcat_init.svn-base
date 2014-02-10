@@ -1,0 +1,50 @@
+#!/bin/bash
+#Managed by CFEngine
+# chkconfig: 234 20 80
+# description: Tomcat server basic start/shutdown script
+JAVA_HOME=/usr/java/default
+export JAVA_HOME
+TOMCAT_HOME=/usr/local/$(tomcat_multi.tomcat_instance)
+START_TOMCAT=/usr/local/$(tomcat_multi.tomcat_instance)/bin/startup.sh
+STOP_TOMCAT=/usr/local/$(tomcat_multi.tomcat_instance)/bin/shutdown.sh
+start() {
+echo -n "Starting tomcat-$(tomcat_multi.tomcat_instance): "
+/usr/bin/pgrep -f -U tomcat-$(tomcat_multi.tomcat_instance) java.\*${TOMCAT_HOME}
+if [ $? -eq 0 ]
+then 
+    echo 'tomcat-$(tomcat_multi.tomcat_instance) already running as PIDs above. abort.'
+    exit 1
+fi
+cd $TOMCAT_HOME
+/bin/su -l -s /bin/sh tomcat-$(tomcat_multi.tomcat_instance) -c ${START_TOMCAT}
+echo "done."
+}
+stop() {
+echo -n "Shutting down tomcat-$(tomcat_multi.tomcat_instance): "
+cd $TOMCAT_HOME
+/bin/su -l -s /bin/sh tomcat-$(tomcat_multi.tomcat_instance) -c ${STOP_TOMCAT}
+echo "done."
+}
+status() {
+echo -n "Tomcat-$(tomcat_multi.tomcat_instance) process: "
+/usr/bin/pgrep -f -U tomcat-$(tomcat_multi.tomcat_instance) java.\*${TOMCAT_HOME}
+}
+case "$1" in
+start)
+start
+;;
+stop)
+stop
+;;
+status)
+status
+;;
+restart)
+stop
+sleep 10
+start
+;;
+*)
+echo "Usage: $0 {start|stop|restart|status}"
+esac
+exit 0
