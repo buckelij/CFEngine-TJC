@@ -1,0 +1,79 @@
+###############################################################################
+#
+# common def
+#  - common/global variables and classes here  
+#
+###############################################################################
+
+bundle common def
+
+{
+
+ vars:
+
+  # Begin change # Your domain name, for use in access control
+
+     "domain"  string => "EXAMPLE.COM",
+              comment => "Define a global domain for all hosts",
+               handle => "common_def_vars_domain";
+
+  # List here the IP masks that we grant access to on the server
+
+    "acl" slist => {
+                # Assume /16 LAN clients to start with
+                #   "$(sys.policy_hub)/16", 
+
+                   "$(sys.policy_hub)/32", #just myself by default
+
+                 #  "2001:700:700:3.*", 
+                 #  "217.77.34.18", 
+                 #  "217.77.34.19",
+                   },
+       comment => "Define an acl for the machines to be granted accesses",
+        handle => "common_def_vars_acl";
+
+  # End change #
+
+   "dir_masterfiles" string => translatepath("$(sys.workdir)/masterfiles"),
+                    comment => "Define masterfiles path",
+                     handle => "common_def_vars_dir_masterfiles";
+   "dir_bin"         string => translatepath("$(sys.workdir)/bin"),
+                    comment => "Define binary path",
+                     handle => "common_def_vars_dir_bin";
+   "dir_modules"     string => translatepath("$(sys.workdir)/modules"),
+                    comment => "Define modules path",
+                     handle => "common_def_vars_dir_modules";
+
+####BEGIN EDIT
+###
+##
+#
+
+classes:
+  "testenv" or => { "footest00" };
+  "prodenv" or => { "fooprod00" };
+  "web" or => { "footest00", "fooprod00" };
+
+vars:
+  "tomcat_java_opts" string => "JAVA_OPTS='-Xms1536m -Xmx2048m -XX:NewSize=256m \
+                                -XX:MaxNewSize=256m -XX:PermSize=256m -XX:MaxPermSize=256m'";
+
+
+#Users
+ "groupmembers[users]" string => "jenkins jsmith bsmith";
+ "groupmembers[tomcat]" string => "jenkins jsmith bsmith";
+ "password_policied" slist => { "bsmith", "jsmith" };
+
+#Servers
+  "servers_all" slist => {
+	"footest00",
+	"fooprod00",
+	};
+  "servers_footest00" string => "10.REDACTED";
+  "servers_fooprod00" string => "10.REDACTED";
+#
+##
+###
+####END EDIT
+
+}

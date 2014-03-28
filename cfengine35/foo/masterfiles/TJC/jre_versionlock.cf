@@ -1,0 +1,19 @@
+bundle agent jre_versionlock(version)
+{
+#For example, jre_versionlock("1.6.0_29-fcs")
+
+  classes:
+    "jre_versionlockOK" expression => returnszero("/bin/grep -q jre-$(version) /etc/yum/pluginconf.d/versionlock.list", "noshell");
+    "plugin_installed" expression => returnszero("/bin/rpm --quiet -q yum-plugin-versionlock", "noshell");
+
+  packages:
+    "yum-plugin-versionlock"
+      package_policy => "add",
+      package_method => generic;
+
+  commands:
+    !jre_versionlockOK.plugin_installed::
+	"/usr/bin/yum versionlock delete ?:jre*";
+	"/usr/bin/yum versionlock jre-$(version)*";
+}
+

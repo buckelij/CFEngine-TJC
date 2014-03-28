@@ -1,0 +1,72 @@
+bundle agent yum_repos
+{
+  vars:
+  centos_6::
+   ##/ETC/YUM/YUM.REPOS.D/CENTOS-BASE.REPO##
+  "centos_base_repo" string =>
+        "#Managed by CFEngine
+[Centos6]
+name=Centos 6x - $basearch
+baseurl=http://mirror.REDACTED.EXAMPLE.COM/6/os/$basearch/
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-6
+[Centos6x-updates]
+name=Centos 6x - $basearch - updates
+baseurl=http://mirror.REDACTED.EXAMPLE.COM/6/updates/$basearch/
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-6
+[Centos6x-cr]
+name=Centos 6x - $basearch - continuous release 
+baseurl=http://mirror.REDACTED.EXAMPLE.COM/6/cr/$basearch/
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-6
+";
+
+vars:
+  ##/ETC/YUM/YUM.REPOS.D/CENTOS-DEBUGINFO.REPO##
+  "centos_debuginfo_repo" string =>
+        "#Managed by CFEngine";
+
+  ##/ETC/YUM/YUM.REPOS.D/CENTOS-MEDIA.REPO##
+  "centos_media_repo" string =>
+        "#Managed by CFEngine";
+
+  ##/ETC/YUM/YUM.REPOS.D/TJC.REPO##
+  "centos_tjc_repo" string =>
+        "#Managed by CFEngine
+[TJC]
+name=TJC Packages
+baseurl=http://mirror.REDACTED.EXAMPLE.COM/tjc/
+enabled=1
+gpgcheck=0";
+
+  files:
+  "/etc/yum.repos.d/CentOS-Base.repo"
+        create => "true",
+        edit_defaults => empty,
+        edit_line => insert_lines($(centos_base_repo));
+  "/etc/yum.repos.d/CentOS-DebugInfo.repo"
+        create => "true",
+        edit_defaults => empty,
+        edit_line => insert_lines($(centos_debuginfo_repo));
+  "/etc/yum.repos.d/CentOS-Media.repo"
+        create => "true",
+        edit_defaults => empty,
+        edit_line => insert_lines($(centos_media_repo));
+
+  files:
+  "/etc/yum.repos.d/tjc.repo"
+	create => "true",
+	edit_defaults => empty,
+	edit_line => insert_lines($(centos_tjc_repo));
+
+  commands:
+        #manually define this (cf-agent -K -v -D run_yum_update) to run yum updates
+        run_yum_update::
+                "/usr/bin/yum makecache";
+                "/usr/bin/yum update -y";
+}
+

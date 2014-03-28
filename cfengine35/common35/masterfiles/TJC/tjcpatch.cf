@@ -1,0 +1,72 @@
+bundle agent tjcpatch
+{
+#schedules patches and reboots. 
+# for each group or server, you should define a schedule in def (promises.cf):
+# e.g.:
+#    "patch_time[web]" string => "9:00pm"
+#    "patch_time[mysql]" string => "8:30pm"
+#
+# To schedule the patch and reboot for the next patch_time, run:
+#  cf-agent -K -D patch_today
+
+
+  classes:
+        "atd_onq" expression => returnszero("/sbin/chkconfig atd", "noshell");
+ 
+  vars:
+	"patch_group" slist => getindices("def.patch_time");
+
+
+  commands:
+        !atd_onq|restart_atd::
+          "/sbin/chkconfig atd on";
+          "/sbin/service atd restart";
+
+  commands:
+	patch_today::
+          #ensure only one patch time happens even if a server is a member of multiple groups
+          "/bin/bash -c \"
+            for job in $(/usr/bin/atq -q a | awk '{print $1}')
+            do
+              /usr/bin/at -c $job | grep -q 'tjc-patch-and-reboot'
+              if [ $? -eq 0 ]
+              then
+                /usr/bin/atrm $job
+              fi
+            done
+	    /usr/bin/at -f /usr/local/bin/tjc-patch-and-reboot.sh $(def.patch_time[$(patch_group)])\"";
+	
+
+
+  packages:
+	"at"
+                package_policy => "add",
+		classes => if_repaired("restart_atd"),
+                package_method => generic;
+
+  files:
+	"/usr/local/bin/tjc-patch-and-reboot.sh"
+		edit_defaults => empty,
+		perms => m(700),
+		create => "true",
+		edit_line => insert_lines("#!/bin/bash
+    #Managed by CFEngine
+    #tjc-patch-and-reboot
+    yum makecache &> /dev/null
+    yum -q check-update &> /dev/null
+    if [ $? -eq 100 ]
+    then
+      zabbix_sender -z zabbix.REDACTED.EXAMPLE.COM -p 10051 -s `hostname` \\
+                    -k tjc.rebootalert -o 'Applying patches and rebooting. Catch you on the flip side.'
+      yum -y update
+      if [ $? -ne 0 ]
+      then
+        zabbix_sender -z zabbix.REDACTED.EXAMPLE.COM -p 10051 -s `hostname` \\
+                      -k tjc.rebootalert -o 'Yum error. Email an SA'
+      fi
+      sleep 15
+      sync
+      /sbin/shutdown -r now
+    fi");
+
+}

@@ -1,0 +1,23 @@
+bundle agent mcafee_excludes
+{
+files:
+	"/var/opt/NAI/LinuxShield/etc/nailsd.cfg"
+		create => "false",
+		classes => if_repaired("mcafee_restart"),
+		edit_line => edit_mcafee_excludes;
+
+commands:
+	mcafee_restart::
+		"/sbin/service nails restart";
+
+}
+
+bundle edit_line edit_mcafee_excludes {
+        delete_lines:
+                "nailsd.profile.OAS.filter.tomcat.*";
+        insert_lines:
+		"nailsd.profile.OAS.filter.tomcat.path: /usr/local/apache-tomcat.*/webapps";
+		"nailsd.profile.OAS.filter.tomcat.subdir: true";
+		"nailsd.profile.OAS.filter.tomcat.type: exclude-path";
+}
+

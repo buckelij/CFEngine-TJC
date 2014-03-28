@@ -1,0 +1,63 @@
+bundle agent zabbix
+{
+### CLASSES ###
+  classes:
+	"zabbix_agent_onq" expression =>  returnszero("/sbin/chkconfig zabbix-agent", "noshell");
+	"zabbix_agent_running" expression =>  returnszero("/sbin/service zabbix-agent status|grep -q 'is running'", "useshell");
+	"zabbix_update_avail" expression => returnszero("/usr/bin/yum check-update|/bin/grep -q zabbix", "useshell");
+
+### VARS ###
+  vars:
+	## /ETC/ZABBIX/zabbix_agent.conf ##
+	"zabbix_agent_lines" string => 
+		"#Managed by CFEngine
+Server=192.168.REDACTED
+ServerActive=192.168.REDACTED";
+
+	## /ETC/ZABBIX/zabbix_agentd.conf ##
+	"zabbix_agentd_lines" string => 
+		"#Managed by CFEngine
+Server=192.168.REDACTED
+ServerActive=192.168.REDACTED
+Include=/etc/zabbix/zabbix_agentd/";
+
+### PACKAGES ###
+  packages:
+	"zabbix-agent"
+		package_policy => "add",
+		package_method => generic,
+		classes => if_repaired("zabbix_reload");
+	
+### FILES ###
+  files:
+	"/etc/zabbix/zabbix_agent.conf"
+		classes => if_repaired("zabbix_reload"),
+		create => "true",
+		perms => m(640),
+		edit_defaults => empty,
+		edit_line => insert_lines($(zabbix_agent_lines));
+	"/etc/zabbix/zabbix_agentd.conf"
+		classes => if_repaired("zabbix_reload"),
+		create => "true",
+		perms => m(640),
+		edit_defaults => empty,
+		edit_line => insert_lines($(zabbix_agentd_lines));
+	"/etc/zabbix/zabbix_agentd/."
+		classes =>  if_repaired("zabbix_reload"),
+		changes => detect_content,
+		depth_search => recurse("inf"),
+		create => "true",
+		perms => m(640);
+
+### COMMANDS ###
+  commands:
+	!zabbix_agent_onq::
+		"/sbin/chkconfig zabbix-agent on";
+		"/sbin/service zabbix-agent start";
+  commands:
+	zabbix_reload::
+		"/sbin/service zabbix-agent restart";
+  commands:
+	zabbix_update_avail::
+		"/usr/bin/yum -y update zabbix-agent";
+}

@@ -1,0 +1,60 @@
+bundle agent authzn
+{
+#NOTE: the groupmembers space-separated string should be defined in def
+#      e.g.: "groupmembers[users]" string => "jenkins bsmith jsmith";
+#            "groupmembers[tomcat]" string => "jenkins";
+#            "groupmembers[wheel]" string => "bsmith jsmith";
+#            "password_policied" slist => { "bsmith", "jsmith" }; #comment out if unused, instead of leaving empty
+#
+# Groups are not created by this script. They should be created by the responsible service.
+# The user will be added to the group only if the group exists
+
+classes:
+  "password_policyq" expression => isvariable("password_policied");
+#
+##
+###
+####END EDIT
+
+vars:
+"groups" slist => getindices("def.groupmembers");
+
+#Add each user in groupmembers[users]
+commands:
+ "/bin/bash -c 'for u in $(def.groupmembers[users])
+                 do 
+                    if ! /usr/bin/id $u >/dev/null 2>&1           
+                     then /usr/sbin/useradd -m $u
+                    fi                                            
+                 done'";
+
+#Add each user to each group
+ "/bin/bash -c 'for u in $(def.groupmembers[$(groups)])                      
+                  do 
+                     if /usr/bin/getent group $(groups) >/dev/null 2>&1
+                     then
+                       if ! /usr/bin/id $u 2>&1 | grep -q \\($(groups)\\) 
+                        then /usr/sbin/usermod -aG $(groups) $u      
+                       fi
+                     fi                                             
+                  done'";
+
+#PASSWORD POLICY
+  commands:
+       password_policyq.Hr03::
+       "/usr/bin/chage -I 30 -M 60 -W 30 $(def.password_policied)"
+                       action => if_elapsed("240");
+
+#SUDOERS
+files:
+        "/etc/sudoers.d/local"
+                create => "true",
+                perms => mog(440,"root","root"),
+                edit_defaults => empty,
+                edit_line => insert_lines("#Managed by CFEngine
+                                           #Allow jenkins to run sudo commands via ssh
+                                           Defaults:jenkins !requiretty
+                                           Defaults:jenkins visiblepw
+                                           %wheel ALL=(ALL) ALL");
+
+}

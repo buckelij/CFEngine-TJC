@@ -1,0 +1,31 @@
+bundle agent packages
+{
+  vars:
+        "commonpackages" slist => {
+                "openssh-clients",
+                "ntp",
+		"sudo",
+		"wget",
+		"man",
+		"bind-utils",
+		"telnet",
+                "ntpdate",
+		"sendmail", #required for cron
+		"mailx",
+		"cronie",
+		"rsync",
+		"nc"
+        };
+       #default goes last
+        any::
+                "mypackages" slist => {
+                        @(commonpackages)
+                };
+
+  packages:
+        "$(mypackages)"
+                package_policy => "add",
+                package_method => generic;
+
+}
+
